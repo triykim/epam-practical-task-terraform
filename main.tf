@@ -42,7 +42,7 @@ module "vpc" {
   azs             = local.azs
   private_subnets = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 8, k)]
   public_subnets = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 8, k + 100)]
-
+  enable_nat_gateway = true
   tags = local.tags
 }
 
@@ -100,7 +100,6 @@ resource "aws_instance" "app_server" {
   count = 2
   ami           = data.aws_ami.al_latest.id
   instance_type = "t3.micro"
-  vpc_security_group_ids = [module.vpc.default_security_group_id]
   subnet_id = module.vpc.private_subnets[count.index]
 
   security_groups = [aws_security_group.app-server-sg.id]
