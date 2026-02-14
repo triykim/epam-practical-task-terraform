@@ -1,19 +1,10 @@
 provider "aws" {
-  region  = local.region
-  profile = "default"
+  region  = var.region
+  profile = var.aws_profile
 }
 
 locals {
-  region = "us-east-1"
-
-  vpc_cidr = "10.0.0.0/16"
-  azs      = slice(data.aws_availability_zones.available.names, 0, 2)
-
-  tags = {
-    Terraform = "true"
-    Environment = "dev"
-    Project = "epam"
-  }
+  azs = slice(data.aws_availability_zones.available.names, 0, 2)
 }
 
 data "aws_availability_zones" "available" {}
@@ -36,14 +27,13 @@ data "aws_ami" "al_latest" {
 module "vpc" {
   source = "terraform-aws-modules/vpc/aws"
 
-  name = "custom-vpc"
-  cidr = local.vpc_cidr
-
+  name = var.vpc_name
+  cidr = var.vpc_cidr
   azs             = local.azs
-  private_subnets = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 8, k)]
-  public_subnets = [for k, v in local.azs : cidrsubnet(local.vpc_cidr, 8, k + 100)]
+  private_subnets = [for k, v in local.azs : cidrsubnet(var.vpc_cidr, 8, k)]
+  public_subnets = [for k, v in local.azs : cidrsubnet(var.vpc_cidr, 8, k + 100)]
   enable_nat_gateway = true
-  tags = local.tags
+  tags = var.tags
 }
 
 resource "aws_security_group" "lb-sg" {
@@ -66,13 +56,13 @@ resource "aws_security_group" "lb-sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(local.tags, {
+  tags = merge(var.tags, {
     Name = "lb-sg"
   })
 }
 
-resource "aws_security_group" "app-server-sg" {
-  name        = "app-server-sg"
+resource "aws_security_group" "instance-sg" {
+  name        = "instance-sg"
   description = "Allow HTTP from LB"
   vpc_id      = module.vpc.vpc_id
 
@@ -91,24 +81,24 @@ resource "aws_security_group" "app-server-sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  tags = merge(local.tags, {
-    Name = "app-server-sg"
+  tags = merge(var.tags, {
+    Name = "instance-sg"
   })
 }
 
-resource "aws_instance" "app_server" {
+resource "aws_instance" "web_server" {
   count = 2
   ami           = data.aws_ami.al_latest.id
-  instance_type = "t3.micro"
+  instance_type = var.instance_type
   subnet_id = module.vpc.private_subnets[count.index]
 
-  security_groups = [aws_security_group.app-server-sg.id]
+  security_groups = [aws_security_group.instance-sg.id]
   user_data = file("${path.module}/userdata.sh")
 
   tags = merge(
-    local.tags,
+    var.tags,
     {
-      Name = "app_server${count.index + 1}"
+      Name = "${var.instance_name_prefix}${count.index + 1}"
     }
   )
 }
@@ -133,10 +123,10 @@ resource "aws_elb" "my-elb" {
     interval            = 30
   }
 
-  instances                   = aws_instance.app_server[*].id
+  instances                   = aws_instance.web_server[*].id
 
   tags = merge(
-    local.tags,
+    var.tags,
     {
       Name = "my-elb"
     }
